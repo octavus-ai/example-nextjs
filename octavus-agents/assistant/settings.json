@@ -1,0 +1,6 @@
+{
+  "slug": "example-nextjs-assistant",
+  "name": "Example Next.js Assistant",
+  "description": "A helpful AI assistant demonstrating Octavus integration with Next.js.",
+  "format": "interactive"
+}
