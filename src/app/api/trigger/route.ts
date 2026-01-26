@@ -1,7 +1,7 @@
 /**
  * Agent Trigger API Route
  *
- * Handles triggering agent actions and streaming responses via SSE.
+ * Handles both trigger and continuation requests, streaming responses via SSE.
  */
 
 import type { NextRequest } from 'next/server';
@@ -10,37 +10,59 @@ import { toSSEStream } from '@octavus/server-sdk';
 import { getOctavusClient } from '@/lib/octavus';
 import { assistantConfig } from '@/lib/agents/assistant';
 
+/** Schema for tool results in continuation requests */
+const toolResultSchema = z.object({
+  toolCallId: z.string().min(1),
+  result: z.unknown(),
+});
+
+/** Schema for trigger requests */
 const triggerRequestSchema = z.object({
   sessionId: z.string().min(1),
+  type: z.literal('trigger'),
   triggerName: z.string().min(1),
   input: z.record(z.string(), z.unknown()).optional(),
 });
 
+/** Schema for continuation requests (client tool results) */
+const continueRequestSchema = z.object({
+  sessionId: z.string().min(1),
+  type: z.literal('continue'),
+  executionId: z.string().min(1),
+  toolResults: z.array(toolResultSchema).min(1),
+});
+
+/** Combined schema for all request types */
+const requestBodySchema = z.discriminatedUnion('type', [
+  triggerRequestSchema,
+  continueRequestSchema,
+]);
+
 /**
- * POST /api/trigger - Trigger an agent action and stream the response
+ * POST /api/trigger - Handle agent requests (trigger or continuation)
  *
  * Request body:
- * {
- *   sessionId: string,
- *   triggerName: string,
- *   input?: Record<string, unknown>
- * }
+ * - Trigger: { sessionId, type: 'trigger', triggerName, input? }
+ * - Continue: { sessionId, type: 'continue', executionId, toolResults }
  *
  * Response: SSE stream of agent events
  */
 export async function POST(request: NextRequest) {
   try {
     const body: unknown = await request.json();
-    const parsed = triggerRequestSchema.safeParse(body);
+    const parsed = requestBodySchema.safeParse(body);
 
     if (!parsed.success) {
       return Response.json(
-        { error: 'Missing required fields: sessionId, triggerName' },
+        {
+          error: 'Invalid request body',
+          details: parsed.error.flatten().fieldErrors,
+        },
         { status: 400 },
       );
     }
 
-    const { sessionId, triggerName, input } = parsed.data;
+    const { sessionId, ...sessionRequest } = parsed.data;
 
     const client = getOctavusClient();
 
@@ -50,7 +72,8 @@ export async function POST(request: NextRequest) {
       resources: assistantConfig.resources,
     });
 
-    const events = session.trigger(triggerName, input, {
+    // execute() handles both triggers and continuations
+    const events = session.execute(sessionRequest, {
       signal: request.signal,
     });
 

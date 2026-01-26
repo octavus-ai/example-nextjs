@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Paperclip, X, Loader2, AlertCircle, Square, Send, ExternalLink } from 'lucide-react';
 import Image from 'next/image';
+import { z } from 'zod';
 import {
   useOctavusChat,
   createHttpTransport,
@@ -13,11 +14,20 @@ import {
   type FileReference,
   type UploadUrlsResponse,
   type OctavusError,
+  type ClientToolHandler,
 } from '@octavus/react';
 
 import { cn } from '@/lib/utils';
 import { MessageBubble } from './message-bubble';
 import { ChatSidebar, type ChatMetadata } from './chat-sidebar';
+import { FeedbackModal } from './feedback-modal';
+
+/** Schema for request-feedback tool arguments */
+const feedbackToolArgsSchema = z.object({
+  promptText: z.string().optional(),
+  showRating: z.boolean().optional(),
+  showComment: z.boolean().optional(),
+});
 
 interface PendingFile {
   file: File;
@@ -54,18 +64,40 @@ export function ChatInterface({ sessionId, initialMessages = [], platformUrl }: 
     return `pending-${fileIdCounter.current}`;
   };
 
+  // v2: Updated transport with unified request handler
   const transport = useMemo(
     () =>
       createHttpTransport({
-        triggerRequest: (triggerName, input, options) =>
+        request: (payload, options) =>
           fetch('/api/trigger', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sessionId, triggerName, input }),
+            body: JSON.stringify({ sessionId, ...payload }),
             signal: options?.signal,
           }),
       }),
     [sessionId],
+  );
+
+  // v2: Define client-side tools
+  const clientTools = useMemo<Record<string, ClientToolHandler>>(
+    () => ({
+      // Interactive: requires user input via modal
+      'request-feedback': 'interactive',
+
+      // Automatic: executes immediately, no user interaction needed
+      'get-browser-info': () =>
+        Promise.resolve({
+          userAgent: navigator.userAgent,
+          language: navigator.language,
+          languages: [...navigator.languages],
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          screenWidth: window.screen.width,
+          screenHeight: window.screen.height,
+          colorDepth: window.screen.colorDepth,
+        }),
+    }),
+    [],
   );
 
   const requestUploadUrls = useCallback(
@@ -85,10 +117,12 @@ export function ChatInterface({ sessionId, initialMessages = [], platformUrl }: 
     [sessionId],
   );
 
-  const { messages, status, error, send, stop, uploadFiles } = useOctavusChat({
+  // v2: Added clientTools and pendingClientTools
+  const { messages, status, error, send, stop, uploadFiles, pendingClientTools } = useOctavusChat({
     transport,
     requestUploadUrls,
     initialMessages,
+    clientTools,
     onResourceUpdate: (name, value) => {
       switch (name) {
         case 'CHAT_TITLE':
@@ -117,6 +151,22 @@ export function ChatInterface({ sessionId, initialMessages = [], platformUrl }: 
   });
 
   const isStreaming = status === 'streaming';
+  const isAwaitingInput = status === 'awaiting-input';
+
+  // Get pending feedback tools with parsed args
+  const feedbackTools = useMemo(() => {
+    const tools = pendingClientTools['request-feedback'] ?? [];
+    return tools.map((tool) => {
+      const result = feedbackToolArgsSchema.safeParse(tool.args);
+      return {
+        ...tool,
+        parsedArgs: result.success ? result.data : {},
+      };
+    });
+  }, [pendingClientTools]);
+
+  // Handle first pending feedback tool (multiple can be supported by mapping)
+  const feedbackTool = feedbackTools[0] ?? null;
 
   useEffect(() => {
     const scrollToBottom = () => {
@@ -257,7 +307,9 @@ export function ChatInterface({ sessionId, initialMessages = [], platformUrl }: 
                 'rounded-full px-2.5 py-1 text-xs font-medium',
                 status === 'streaming'
                   ? 'bg-teal-400/20 text-teal-400'
-                  : 'bg-muted text-muted-foreground',
+                  : status === 'awaiting-input'
+                    ? 'bg-amber-400/20 text-amber-400'
+                    : 'bg-muted text-muted-foreground',
               )}
             >
               {status}
@@ -312,6 +364,14 @@ export function ChatInterface({ sessionId, initialMessages = [], platformUrl }: 
         {/* Input */}
         <div className="border-t border-border bg-surface px-4 py-4 backdrop-blur">
           <div className="mx-auto max-w-4xl">
+            {/* Awaiting input indicator */}
+            {isAwaitingInput && !feedbackTool && (
+              <div className="mb-3 flex items-center gap-2 text-sm text-amber-400">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Please respond to the prompt to continue...</span>
+              </div>
+            )}
+
             {/* Pending files preview */}
             {pendingFiles.length > 0 && (
               <div className="mb-3 flex flex-wrap gap-2">
@@ -393,7 +453,7 @@ export function ChatInterface({ sessionId, initialMessages = [], platformUrl }: 
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={isStreaming}
+                disabled={isStreaming || isAwaitingInput}
                 className="shrink-0 rounded-lg p-2.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
               >
                 <Paperclip className="h-5 w-5" />
@@ -405,7 +465,7 @@ export function ChatInterface({ sessionId, initialMessages = [], platformUrl }: 
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Type your message..."
-                disabled={isStreaming}
+                disabled={isStreaming || isAwaitingInput}
                 rows={1}
                 className="flex-1 resize-none rounded-lg border border-border bg-card px-4 py-2.5 text-foreground placeholder:text-muted-foreground focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 disabled:opacity-50"
               />
@@ -423,6 +483,7 @@ export function ChatInterface({ sessionId, initialMessages = [], platformUrl }: 
                   type="submit"
                   disabled={
                     isUploading ||
+                    isAwaitingInput ||
                     (!inputValue.trim() && pendingFiles.length === 0) ||
                     hasUploadErrors
                   }
@@ -446,6 +507,15 @@ export function ChatInterface({ sessionId, initialMessages = [], platformUrl }: 
         onGenerateMetadata={handleGenerateMetadata}
         isGenerating={isGeneratingMetadata || isStreaming}
       />
+
+      {/* Feedback Modal for client-side tool */}
+      {feedbackTool && (
+        <FeedbackModal
+          {...feedbackTool.parsedArgs}
+          onSubmit={(rating, comment) => feedbackTool.submit({ rating, comment })}
+          onCancel={() => feedbackTool.cancel()}
+        />
+      )}
     </div>
   );
 }
