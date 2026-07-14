@@ -10,7 +10,7 @@ A chat application demonstrating Octavus integration with Next.js using HTTP/SSE
 - QR code generation via skills
 - Image generation and file uploads
 - Auto-generate chat title, summary, and cover image
-- Resource synchronization (sidebar updates)
+- Chat metadata sync to the sidebar via a client tool
 - Session management
 
 ## Quick Start
@@ -76,7 +76,7 @@ example-nextjs/
 ├── octavus-agents/           # Agent definitions
 │   └── assistant/
 │       ├── settings.json     # Agent metadata
-│       ├── protocol.yaml     # Agent protocol (triggers, tools, resources)
+│       ├── protocol.yaml     # Agent protocol (triggers, tools, handlers)
 │       └── prompts/          # Prompt templates
 ├── src/
 │   ├── app/
@@ -130,17 +130,22 @@ const tools: ToolHandlers = {
 };
 ```
 
-### Resource Updates
+### Client Tools
 
-Resources sync automatically via the `onResourceUpdate` callback:
+Some tools run in the browser instead of on the server. Register them in `clientTools`, and any tool the agent calls that has no server-side handler is forwarded to the client. The assistant uses this to push the generated title, summary, and cover image into the sidebar:
 
 ```typescript
 const { messages, send } = useOctavusChat({
   transport,
-  onResourceUpdate: (name, value) => {
-    if (name === 'CHAT_TITLE') setChatTitle(value);
-    if (name === 'CHAT_SUMMARY') setChatSummary(value);
-    if (name === 'CHAT_IMAGE') setChatImage(value);
+  clientTools: {
+    'set-chat-metadata': (args) => {
+      setChatMetadata({
+        title: (args.title as string) || 'New Chat',
+        summary: (args.summary as string) || '',
+        image: (args.image as string) || '',
+      });
+      return Promise.resolve({ saved: true });
+    },
   },
 });
 ```

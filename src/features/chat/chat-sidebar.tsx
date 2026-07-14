@@ -18,7 +18,7 @@ interface ChatSidebarProps {
 
 /**
  * Sidebar displaying chat metadata (title, summary, cover image).
- * Resources are updated via onResourceUpdate callback from useOctavusChat.
+ * Metadata is pushed from the agent via the `set-chat-metadata` client tool.
  */
 export function ChatSidebar({ metadata, onGenerateMetadata, isGenerating }: ChatSidebarProps) {
   const [isExpanded, setIsExpanded] = useState(true);
@@ -106,7 +106,7 @@ export function ChatSidebar({ metadata, onGenerateMetadata, isGenerating }: Chat
       {/* Footer */}
       <div className="border-t border-border px-4 py-3">
         <p className="text-sm text-muted-foreground">
-          Resources sync automatically via Octavus events.
+          Metadata syncs from the agent via a client tool.
         </p>
       </div>
     </aside>

@@ -64,7 +64,7 @@ export function ChatInterface({ sessionId, initialMessages = [], platformUrl }: 
     return `pending-${fileIdCounter.current}`;
   };
 
-  // v2: Updated transport with unified request handler
+  // HTTP transport - one request handler for both triggers and continuations
   const transport = useMemo(
     () =>
       createHttpTransport({
@@ -79,7 +79,7 @@ export function ChatInterface({ sessionId, initialMessages = [], platformUrl }: 
     [sessionId],
   );
 
-  // v2: Define client-side tools
+  // Client-side tools
   const clientTools = useMemo<Record<string, ClientToolHandler>>(
     () => ({
       // Interactive: requires user input via modal
@@ -96,6 +96,17 @@ export function ChatInterface({ sessionId, initialMessages = [], platformUrl }: 
           screenHeight: window.screen.height,
           colorDepth: window.screen.colorDepth,
         }),
+
+      // Automatic: pushes the generated title, summary, and cover image into
+      // the sidebar.
+      'set-chat-metadata': (args) => {
+        setChatMetadata({
+          title: (args.title as string) || 'New Chat',
+          summary: (args.summary as string) || '',
+          image: (args.image as string) || '',
+        });
+        return Promise.resolve({ saved: true });
+      },
     }),
     [],
   );
@@ -117,25 +128,11 @@ export function ChatInterface({ sessionId, initialMessages = [], platformUrl }: 
     [sessionId],
   );
 
-  // v2: Added clientTools and pendingClientTools
   const { messages, status, error, send, stop, uploadFiles, pendingClientTools } = useOctavusChat({
     transport,
     requestUploadUrls,
     initialMessages,
     clientTools,
-    onResourceUpdate: (name, value) => {
-      switch (name) {
-        case 'CHAT_TITLE':
-          setChatMetadata((prev) => ({ ...prev, title: value as string }));
-          break;
-        case 'CHAT_SUMMARY':
-          setChatMetadata((prev) => ({ ...prev, summary: value as string }));
-          break;
-        case 'CHAT_IMAGE':
-          setChatMetadata((prev) => ({ ...prev, image: value as string }));
-          break;
-      }
-    },
     onFinish: () => {
       setIsGeneratingMetadata(false);
     },

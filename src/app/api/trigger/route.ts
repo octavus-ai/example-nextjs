@@ -10,10 +10,30 @@ import { toSSEStream } from '@octavus/server-sdk';
 import { getOctavusClient } from '@/lib/octavus';
 import { assistantConfig } from '@/lib/agents/assistant';
 
-/** Schema for tool results in continuation requests */
+/**
+ * Tool results echoed back on continuation. Mirrors the SDK's `ToolResult` so
+ * every field survives the round-trip - most importantly `error` (set when a
+ * client tool is cancelled or throws) and the worker/thread routing fields -
+ * rather than being silently dropped by validation.
+ */
+const fileReferenceSchema = z.object({
+  id: z.string(),
+  mediaType: z.string(),
+  url: z.string(),
+  filename: z.string().optional(),
+  size: z.number().optional(),
+});
+
 const toolResultSchema = z.object({
   toolCallId: z.string().min(1),
-  result: z.unknown(),
+  toolName: z.string().optional(),
+  result: z.unknown().optional(),
+  error: z.string().optional(),
+  files: z.array(fileReferenceSchema).optional(),
+  outputVariable: z.string().optional(),
+  blockIndex: z.number().optional(),
+  thread: z.string().optional(),
+  workerId: z.string().optional(),
 });
 
 /** Schema for trigger requests */
@@ -66,10 +86,9 @@ export async function POST(request: NextRequest) {
 
     const client = getOctavusClient();
 
-    // Attach to session with tool handlers and resources
+    // Attach to session with server-side tool handlers
     const session = client.agentSessions.attach(sessionId, {
       tools: assistantConfig.tools,
-      resources: assistantConfig.resources,
     });
 
     // execute() handles both triggers and continuations
