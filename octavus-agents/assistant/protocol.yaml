@@ -39,24 +39,28 @@ triggers:
     description: Generate title, summary, and cover image for the chat
 
 # External tools - implemented by consumer (server or client)
+# `title` is the label the user sees; `description` is written for the model.
 tools:
   get-current-time:
-    description: Getting the current time
-    display: description
+    display: title
+    title: Checking the time
+    description: Get the current date and time, optionally in a specific timezone.
     parameters:
       timezone:
         type: string
-        description: Timezone (e.g., "America/New_York", "UTC")
+        description: IANA timezone (e.g., "America/New_York", "UTC")
         optional: true
 
   # Client-side tools (no server handler - forwarded to client)
   get-browser-info:
-    description: Get browser information from the user's device
-    display: description
+    display: title
+    title: Reading your browser info
+    description: Get the user's browser and device information - user agent, language, timezone, and screen size.
 
   request-feedback:
-    description: Request feedback from the user via an interactive modal
-    display: description
+    display: title
+    title: Asking for your feedback
+    description: Ask the user for feedback through an interactive modal and wait for their rating and comment.
     parameters:
       promptText:
         type: string
@@ -74,6 +78,7 @@ tools:
   # Client-side tool: with no server handler registered, its calls are forwarded
   # to the browser, which updates the chat sidebar.
   set-chat-metadata:
+    display: hidden
     description: Save the generated chat title, summary, and cover image to the UI
     parameters:
       title:
@@ -86,12 +91,12 @@ tools:
 # Octavus skill - code execution
 skills:
   qr-code:
-    display: description
-    description: Generating QR code
+    display: title
+    title: Generating a QR code
 
 # Agent configuration
 agent:
-  model: anthropic/claude-sonnet-4-5
+  model: anthropic/claude-sonnet-5-5
   system: system
   input:
     - USER_NAME
@@ -104,7 +109,7 @@ agent:
   agentic: true
   maxSteps: 10
   thinking: medium
-  imageModel: openai/gpt-image-1
+  imageModel: openai/gpt-image-2.5-flare
 
 # Handlers
 handlers:
@@ -134,7 +139,7 @@ handlers:
     Start metadata thread:
       block: start-thread
       thread: metadata-generator
-      model: anthropic/claude-sonnet-4-5
+      model: anthropic/claude-sonnet-5-5
       system: metadata-system
       input:
         - CONVERSATION: CONVERSATION_TEXT
@@ -149,7 +154,7 @@ handlers:
     Generate summary:
       block: next-message
       thread: metadata-generator
-      description: Generating summary
+      title: Generating summary
       display: stream
       independent: true
       output: GENERATED_SUMMARY
@@ -166,7 +171,7 @@ handlers:
     Generate title:
       block: next-message
       thread: metadata-generator
-      description: Generating title
+      title: Generating title
       display: stream
       independent: true
       output: GENERATED_TITLE
@@ -183,7 +188,7 @@ handlers:
     Generate image prompt:
       block: next-message
       thread: metadata-generator
-      description: Creating image prompt
+      title: Creating image prompt
       display: stream
       independent: true
       output: IMAGE_PROMPT
@@ -192,10 +197,10 @@ handlers:
     Generate cover image:
       block: generate-image
       prompt: IMAGE_PROMPT
-      imageModel: openai/gpt-image-1
-      size: 1024x1024
+      imageModel: openai/gpt-image-2.5-flare
+      aspectRatio: '1:1'
       output: GENERATED_IMAGE_URL
-      description: Generating cover image
+      title: Generating cover image
 
     # Save all generated metadata to the UI via a client tool
     Save metadata:

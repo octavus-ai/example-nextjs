@@ -17,7 +17,7 @@ A chat application demonstrating Octavus integration with Next.js using HTTP/SSE
 
 ### Prerequisites
 
-- Node.js 20+
+- Node.js 22+
 - Octavus account with API keys
 
 ### Setup
@@ -49,9 +49,10 @@ A chat application demonstrating Octavus integration with Next.js using HTTP/SSE
    OCTAVUS_CLI_API_KEY=your-cli-api-key
    ```
 
-4. Sync the agent:
+4. Validate and sync the agent:
 
    ```bash
+   npm run agents:validate
    npm run agents:sync
    ```
 
@@ -102,17 +103,21 @@ example-nextjs/
 
 The server SDK (`@octavus/server-sdk`) handles:
 
-- Creating sessions via `client.agentSessions.create()`
-- Attaching tool handlers via `client.agentSessions.attach()`
+- Creating sessions via `client.sessions.create()`
+- Reading a session and its messages via `client.sessions.get()` and `client.sessions.getMessages()`
+- Attaching tool handlers via `client.sessions.attach()`
 - Streaming responses via `toSSEStream()`
-- File uploads via `client.files.getUploadUrls()`
+- File uploads via `client.files.create()` (files belong to the project, so no session is needed)
+- Errors as `OctavusError`, forwarded to the browser with their status and code
 
 ### React SDK
 
 The React SDK (`@octavus/react`) provides:
 
-- `useOctavusChat` hook for chat state management
+- `useOctavusChat` hook for chat state management, with smoothed text streaming and `retry()`
+- `useAutoScroll` to follow new content unless the user scrolls up
 - `createHttpTransport` for HTTP/SSE transport
+- `getPartLabel` to label tool and operation cards (the authored `title`, else the tool or block name)
 - Type definitions for UI messages and parts
 
 ### Tool Handlers
@@ -152,23 +157,24 @@ const { messages, send } = useOctavusChat({
 
 ## Environment Variables
 
-| Variable            | Description                              | Required |
-| ------------------- | ---------------------------------------- | -------- |
-| `OCTAVUS_API_URL`   | Octavus platform URL                     | No       |
-| `OCTAVUS_API_KEY`   | API key for runtime                      | Yes      |
-| `OCTAVUS_AGENT_ID`  | Agent ID (from sync)                     | Yes      |
-| `OCTAVUS_CLI_API_KEY` | API key for CLI sync                   | No       |
+| Variable              | Description                                         | Required |
+| --------------------- | --------------------------------------------------- | -------- |
+| `OCTAVUS_API_URL`     | Octavus platform URL (default `https://octavus.ai`) | No       |
+| `OCTAVUS_API_KEY`     | API key for runtime                                 | Yes      |
+| `OCTAVUS_AGENT_ID`    | Agent ID (from sync)                                | Yes      |
+| `OCTAVUS_CLI_API_KEY` | API key for CLI validate and sync                   | No       |
 
 ## Scripts
 
-| Script               | Description                |
-| -------------------- | -------------------------- |
-| `npm run dev`        | Start development server   |
-| `npm run build`      | Build for production       |
-| `npm run start`      | Start production server    |
-| `npm run lint`       | Run ESLint                 |
-| `npm run type-check` | Run TypeScript type check  |
-| `npm run agents:sync`| Sync agent to Octavus      |
+| Script                    | Description                      |
+| ------------------------- | -------------------------------- |
+| `npm run dev`             | Start development server         |
+| `npm run build`           | Build for production             |
+| `npm run start`           | Start production server          |
+| `npm run lint`            | Run ESLint                       |
+| `npm run type-check`      | Run TypeScript type check        |
+| `npm run agents:validate` | Validate the agent definition    |
+| `npm run agents:sync`     | Sync agent to Octavus            |
 
 ## Learn More
 

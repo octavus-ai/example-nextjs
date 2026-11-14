@@ -5,9 +5,8 @@
  */
 
 import { z } from 'zod';
-import { getOctavusClient } from '@/lib/octavus';
+import { getOctavusClient, toErrorResponse } from '@/lib/octavus';
 import { getDefaultAgentId } from '@/lib/server-config';
-import { ApiError } from '@octavus/server-sdk';
 
 const createSessionSchema = z.object({
   input: z
@@ -42,19 +41,11 @@ export async function POST(request: Request) {
     const client = getOctavusClient();
     const agentId = getDefaultAgentId();
 
-    const sessionId = await client.agentSessions.create(agentId, parsed.data.input);
+    const { id: sessionId } = await client.sessions.create(agentId, parsed.data.input);
 
     return Response.json({ sessionId });
   } catch (error) {
     console.error('Create session error:', error);
-
-    if (error instanceof ApiError) {
-      return Response.json({ error: error.message }, { status: error.status });
-    }
-
-    return Response.json(
-      { error: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 },
-    );
+    return toErrorResponse(error, 'Failed to create session');
   }
 }

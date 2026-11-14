@@ -1,13 +1,13 @@
 import 'server-only';
 
-const DEFAULT_OCTAVUS_API_URL = 'https://octavus.ai';
+import { DEFAULT_BASE_URL } from '@octavus/server-sdk';
 
 /**
  * Get the platform URL for server-side code.
  * Uses OCTAVUS_API_URL env var with production fallback.
  */
 export function getOctavusPlatformUrl(): string {
-  return process.env.OCTAVUS_API_URL ?? DEFAULT_OCTAVUS_API_URL;
+  return process.env.OCTAVUS_API_URL ?? DEFAULT_BASE_URL;
 }
 
 /**

@@ -4,12 +4,13 @@
  * Proxies requests to the Octavus platform to get presigned S3 URLs
  * for file uploads. This allows the client to upload files directly
  * to S3 without exposing the platform API key.
+ *
+ * Files are project resources, so no session is needed to upload one.
  */
 
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
-import { getOctavusClient } from '@/lib/octavus';
-import { ApiError } from '@octavus/server-sdk';
+import { getOctavusClient, toErrorResponse } from '@/lib/octavus';
 
 const fileUploadRequestSchema = z.object({
   filename: z.string().min(1).max(255),
@@ -18,7 +19,6 @@ const fileUploadRequestSchema = z.object({
 });
 
 const uploadUrlsRequestSchema = z.object({
-  sessionId: z.string().min(1),
   files: z.array(fileUploadRequestSchema).min(1).max(20),
 });
 
@@ -27,7 +27,6 @@ const uploadUrlsRequestSchema = z.object({
  *
  * Request body:
  * {
- *   sessionId: string,
  *   files: { filename: string, mediaType: string, size: number }[]
  * }
  *
@@ -45,21 +44,11 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: 'Invalid request body' }, { status: 400 });
     }
 
-    const { sessionId, files } = parsed.data;
     const client = getOctavusClient();
-
-    const result = await client.files.getUploadUrls(sessionId, files);
+    const result = await client.files.create(parsed.data.files);
     return Response.json(result);
   } catch (error) {
     console.error('Upload URLs error:', error);
-
-    if (error instanceof ApiError) {
-      return Response.json({ error: error.message }, { status: error.status });
-    }
-
-    return Response.json(
-      { error: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 },
-    );
+    return toErrorResponse(error, 'Failed to get upload URLs');
   }
 }
