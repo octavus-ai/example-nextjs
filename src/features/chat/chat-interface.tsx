@@ -1,19 +1,30 @@
 'use client';
 
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Paperclip, X, Loader2, AlertCircle, Square, Send, ExternalLink } from 'lucide-react';
+import {
+  Paperclip,
+  X,
+  Loader2,
+  AlertCircle,
+  Square,
+  Send,
+  ExternalLink,
+  RotateCcw,
+} from 'lucide-react';
 import Image from 'next/image';
 import { z } from 'zod';
 import {
   useOctavusChat,
+  useAutoScroll,
   createHttpTransport,
   isRateLimitError,
+  isQuotaExceededError,
   isAuthenticationError,
   isProviderError,
+  OctavusError,
   type UIMessage,
   type FileReference,
   type UploadUrlsResponse,
-  type OctavusError,
   type ClientToolHandler,
 } from '@octavus/react';
 
@@ -54,7 +65,6 @@ export function ChatInterface({ sessionId, initialMessages = [], platformUrl }: 
     image: '',
   });
 
-  const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileIdCounter = useRef(0);
@@ -118,21 +128,34 @@ export function ChatInterface({ sessionId, initialMessages = [], platformUrl }: 
       const response = await fetch('/api/upload-urls', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, files }),
+        body: JSON.stringify({ files }),
       });
       if (!response.ok) {
-        throw new Error('Failed to get upload URLs');
+        const body: unknown = await response.json().catch(() => undefined);
+        throw OctavusError.fromApiResponse(response.status, body, 'Failed to get upload URLs');
       }
       return await (response.json() as Promise<UploadUrlsResponse>);
     },
-    [sessionId],
+    [],
   );
 
-  const { messages, status, error, send, stop, uploadFiles, pendingClientTools } = useOctavusChat({
+  const {
+    messages,
+    status,
+    error,
+    send,
+    stop,
+    retry,
+    canRetry,
+    uploadFiles,
+    pendingClientTools,
+  } = useOctavusChat({
     transport,
     requestUploadUrls,
     initialMessages,
     clientTools,
+    // Render provider bursts as steady typing
+    textSmoothing: true,
     onFinish: () => {
       setIsGeneratingMetadata(false);
     },
@@ -141,11 +164,24 @@ export function ChatInterface({ sessionId, initialMessages = [], platformUrl }: 
         type: err.errorType,
         message: err.message,
         source: err.source,
+        code: err.code,
         retryable: err.retryable,
+        requestId: err.requestId,
       });
       setIsGeneratingMetadata(false);
     },
   });
+
+  const {
+    scrollRef,
+    contentRef,
+    handleScroll,
+    handleWheel,
+    handleTouchStart,
+    handleTouchMove,
+    scrollOnUpdate,
+    resetAutoScroll,
+  } = useAutoScroll();
 
   const isStreaming = status === 'streaming';
   const isAwaitingInput = status === 'awaiting-input';
@@ -165,15 +201,11 @@ export function ChatInterface({ sessionId, initialMessages = [], platformUrl }: 
   // Handle first pending feedback tool (multiple can be supported by mapping)
   const feedbackTool = feedbackTools[0] ?? null;
 
+  // Follow new content unless the user has scrolled up to read
   useEffect(() => {
-    const scrollToBottom = () => {
-      if (scrollRef.current) {
-        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-      }
-    };
-    const frameId = requestAnimationFrame(scrollToBottom);
+    const frameId = requestAnimationFrame(scrollOnUpdate);
     return () => cancelAnimationFrame(frameId);
-  }, [messages]);
+  }, [messages, scrollOnUpdate]);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -196,6 +228,7 @@ export function ChatInterface({ sessionId, initialMessages = [], platformUrl }: 
     const message = inputValue;
     setInputValue('');
     setPendingFiles([]);
+    resetAutoScroll();
 
     await send(
       'user-message',
@@ -315,8 +348,15 @@ export function ChatInterface({ sessionId, initialMessages = [], platformUrl }: 
         </header>
 
         {/* Messages */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-4">
-          <div className="mx-auto max-w-4xl py-6">
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          onWheel={handleWheel}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          className="flex-1 overflow-y-auto px-4"
+        >
+          <div ref={contentRef} className="mx-auto max-w-4xl py-6">
             {messages.length === 0 && (
               <div className="py-12 text-center text-muted-foreground">
                 <p className="text-lg">Start a conversation</p>
@@ -339,6 +379,7 @@ export function ChatInterface({ sessionId, initialMessages = [], platformUrl }: 
                     <p className="text-sm font-medium text-red-400">
                       {(() => {
                         if (isRateLimitError(error)) return 'Service is temporarily busy';
+                        if (isQuotaExceededError(error)) return 'Usage limit reached';
                         if (isAuthenticationError(error)) return 'Service configuration error';
                         if (isProviderError(error)) return 'AI service temporarily unavailable';
                         return 'Something went wrong';
@@ -352,6 +393,16 @@ export function ChatInterface({ sessionId, initialMessages = [], platformUrl }: 
                       </p>
                     )}
                   </div>
+                  {canRetry && (
+                    <button
+                      type="button"
+                      onClick={() => void retry()}
+                      className="flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-red-300 transition-colors hover:bg-red-500/20"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      <span>Retry</span>
+                    </button>
+                  )}
                 </div>
               </div>
             )}
